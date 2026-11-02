@@ -430,6 +430,9 @@ module.exports = grammar({
 		// Phase 3b iter 11: declFieldNoSemi uses a narrower type set; conflicts
 		// with the full `type` rule's choices.
 		[$.type, $.declFieldNoSemi],
+		// a record's last field an array with no `;` (lastFieldArray)
+		[$.type, $.lastFieldArray],
+		[$.declArray, $.lastFieldArray],
 		// Iter 2026-07-06: an anonymous enum `(a, b, c)` in an array index slot is
 		// ambiguous with a parenthesized expression `_ref` (both start `(`). GLR
 		// resolves by what follows: `(a,b,c)]` in index position -> declEnum.
@@ -1653,6 +1656,15 @@ module.exports = grammar({
 			repeat1($.declField),
 			seq(repeat($.declField), $.declFieldNoSemi),
 		),
+		// dynamic -1: where the ordinary field (with its `;`) also parses, it wins
+		lastFieldArray: $ => prec.dynamic(-1, seq(
+			optional($.kPacked),
+			$.kArray,
+			optional(seq('[', delimited1(choice($.range, $.declEnum, $._expr)), ']')),
+			$.kOf,
+			choice($.typeref, alias($.lastFieldArray, $.declArray)),
+		)),
+
 		declFieldNoSemi: $ => seq(
 			...enable_if(rtti, optional($.rttiAttributes)),
 			field('name', delimited1(choice($.identifier, $._dirName))),
@@ -1672,6 +1684,11 @@ module.exports = grammar({
 				$.declFile,
 				$.declProcRef,
 				$.declClass,
+				// An array whose element type can't be a short string `string[N]`,
+				// so `Array[0..4] of String[1];` stays a declField:
+				// `szInsert: packed array[0..MAX_PATH-1] of WCHAR` before `end`
+				// (Winapi.ShlObj's tagDROPDESCRIPTION).
+				alias($.lastFieldArray, $.declArray),
 				// Iter 2026-07-06: plain `string` (BARE keyword, no `[N]` size
 				// spec) as the LAST field with no trailing `;`. Real corpus hits:
 				// dxFontIconsImageLoader `record N: string; V: string end =`,

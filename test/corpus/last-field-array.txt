@@ -1,0 +1,101 @@
+==================
+last field an array, no semicolon
+==================
+
+unit U;
+interface
+type
+  T = record
+    A: Integer;
+    S: packed array[0..3] of WideChar
+  end;
+implementation
+end.
+
+---
+
+(root
+  (unit
+    (kUnit)
+    (moduleName
+      (identifier))
+    (interface
+      (kInterface)
+      (declTypes
+        (kType)
+        (declType
+          (identifier)
+          (kEq)
+          (type
+            (declClass
+              (kRecord)
+              (declField
+                (identifier)
+                (type
+                  (typeref
+                    (identifier))))
+              (declFieldNoSemi
+                (identifier)
+                (declArray
+                  (kPacked)
+                  (kArray)
+                  (range
+                    (literalNumber)
+                    (literalNumber))
+                  (kOf)
+                  (typeref
+                    (identifier))))
+              (kEnd))))))
+    (implementation
+      (kImplementation))
+    (kEnd)
+    (kEndDot)))
+
+==================
+array of short strings with a semicolon stays a declField
+==================
+
+unit U;
+interface
+type
+  T = record
+    S: Array[0..4] of String[1];
+  end;
+implementation
+end.
+
+---
+
+(root
+  (unit
+    (kUnit)
+    (moduleName
+      (identifier))
+    (interface
+      (kInterface)
+      (declTypes
+        (kType)
+        (declType
+          (identifier)
+          (kEq)
+          (type
+            (declClass
+              (kRecord)
+              (declField
+                (identifier)
+                (type
+                  (declArray
+                    (kArray)
+                    (range
+                      (literalNumber)
+                      (literalNumber))
+                    (kOf)
+                    (type
+                      (declString
+                        (kString)
+                        (literalNumber))))))
+              (kEnd))))))
+    (implementation
+      (kImplementation))
+    (kEnd)
+    (kEndDot)))
