@@ -48,6 +48,7 @@ enum TokenType {
     MULTILINE_STRING,    // Delphi 12+ '''...''' literal (odd N >= 3 quotes)
     LT_TPL,              // `<` opening a generic's type arguments
     ERROR_SENTINEL,      // never in a rule; valid only in error recovery
+    PP_ROOT_BLOCK,       // {$IF*}...{$END*} before the module header, body not Pascal
 };
 
 void *tree_sitter_delphi13_external_scanner_create(void) { return NULL; }
@@ -234,6 +235,76 @@ static DirectiveKind peek_and_consume_directive_kw(TSLexer *lexer) {
     return classify_directive(lexer);
 }
 
+// ---- pp_block before the module header ----
+//
+// Only directives and comments may stand before `unit` / `program` / ...;
+// a conditional there whose THEN body is not Pascal (`{$IFDEF LINUX} This
+// unit is only supported on Windows! {$ENDIF}`) can't be read through. Its
+// body starts, after blanks and plain comments, with a word that is not a
+// keyword that can open a header or a declaration. Anything else (such a
+// keyword, a directive, a symbol) is Pascal, or may be, and reads through as
+// before. Consumes the lookahead it inspects; the caller has marked the end.
+static bool root_body_is_text(TSLexer *lexer) {
+    static const char *const keywords[] = {
+        "unit", "program", "library", "package", "interface", "implementation",
+        "uses", "const", "type", "var", "threadvar", "resourcestring", "label",
+        "exports", "procedure", "function", "constructor", "destructor",
+        "class", "operator", "begin", "initialization", "finalization", "asm",
+        "packed", "end", NULL,
+    };
+    for (;;) {
+        int32_t c = lexer->lookahead;
+        if (c == ' ' || c == '\t' || c == '\n' || c == '\r') { advance(lexer); continue; }
+        if (c == '/') {
+            advance(lexer);
+            if (lexer->lookahead != '/') return false;
+            while (lexer->lookahead != 0 && lexer->lookahead != '\n') advance(lexer);
+            continue;
+        }
+        if (c == '{') {
+            advance(lexer);
+            if (lexer->lookahead == '$') return false;
+            while (lexer->lookahead != 0 && lexer->lookahead != '}') advance(lexer);
+            if (lexer->lookahead != '}') return false;
+            advance(lexer);
+            continue;
+        }
+        if (c == '(') {
+            advance(lexer);
+            if (lexer->lookahead != '*') return false;
+            advance(lexer);
+            for (;;) {
+                if (lexer->lookahead == 0) return false;
+                if (lexer->lookahead == '*') {
+                    advance(lexer);
+                    if (lexer->lookahead == ')') { advance(lexer); break; }
+                    continue;
+                }
+                advance(lexer);
+            }
+            continue;
+        }
+        break;
+    }
+    int32_t c = to_lower(lexer->lookahead);
+    if (!((c >= 'a' && c <= 'z') || c == '_')) return false;
+    char word[24];
+    unsigned n = 0;
+    while (is_ident_cont(lexer->lookahead)) {
+        if (n < sizeof word - 1) word[n] = (char)to_lower(lexer->lookahead);
+        n++;
+        advance(lexer);
+    }
+    if (n >= sizeof word) return true;   // longer than any keyword
+    word[n] = 0;
+    for (const char *const *k = keywords; *k; k++) {
+        if (strcmp(word, *k) == 0) return false;
+    }
+    return true;
+}
+
+static bool scan_pp_block_body(TSLexer *lexer);
+
 // ---- THEN-wins unified dispatch ----
 //
 // Single function that classifies the directive at lookahead, then commits
@@ -258,6 +329,12 @@ static bool scan_pp_then_wins(TSLexer *lexer, const bool *valid_symbols) {
         if (!consume_directive_to_close(lexer)) return false;
         lexer->result_symbol = PP_OPEN;
         lexer->mark_end(lexer);
+        // Before the module header, a body that is not Pascal is skipped whole
+        // (pp_block); otherwise the token stays this pp_open, ending here.
+        if (valid_symbols[PP_ROOT_BLOCK] && !valid_symbols[ERROR_SENTINEL]
+            && root_body_is_text(lexer) && scan_pp_block_body(lexer)) {
+            lexer->result_symbol = PP_ROOT_BLOCK;
+        }
         return true;
     }
 
@@ -302,7 +379,9 @@ static bool scan_pp_then_wins(TSLexer *lexer, const bool *valid_symbols) {
 }
 
 // ---- pp_block ----
-//
+
+static bool scan_pp_block_body(TSLexer *lexer);
+
 // On entry: lookahead = '{'. Try to consume the entire `{$IF*}...{$END*}`
 // block as one token. Returns true on success.
 static bool scan_pp_block(TSLexer *lexer) {
@@ -333,6 +412,13 @@ static bool scan_pp_block(TSLexer *lexer) {
     // the wrapped declaration via the regex-pp fallback.
     if (starts_with_structural_keyword(lexer)) return false;
 
+    return scan_pp_block_body(lexer);
+}
+
+// The body of a `{$IF*}` block, its opening directive already consumed, up to
+// and including the matching {$END*} / {$IFEND}, tracking nested pairs. Sets
+// PP_BLOCK and marks the end on success.
+static bool scan_pp_block_body(TSLexer *lexer) {
     // Scan body, tracking nested {$if*}/{$end*}/{$ifend*} pairs.
     int depth = 1;
     int safety = 8 * 1024 * 1024;  // 8 MiB hard cap

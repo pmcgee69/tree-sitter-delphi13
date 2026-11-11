@@ -1,0 +1,109 @@
+==================
+pp_block before the header: a guard with an else branch is skipped whole
+==================
+
+{$IFNDEF MSWINDOWS}
+Windows only!
+{$ELSE}
+{$DEFINE OK}
+{$ENDIF}
+unit Foo;
+interface
+implementation
+end.
+
+---
+
+(root
+  (pp_block)
+  (unit
+    (kUnit)
+    (moduleName
+      (identifier))
+    (interface
+      (kInterface))
+    (implementation
+      (kImplementation))
+    (kEnd)
+    (kEndDot)))
+
+==================
+include file: a conditional around a routine still reads through (regression guard)
+==================
+
+{$IFDEF X}
+procedure Foo;
+begin
+end;
+{$ENDIF}
+
+---
+
+(root
+  (pp_open)
+  (defProc
+    (declProc
+      (kProcedure)
+      (identifier))
+    (block
+      (kBegin)
+      (kEnd)))
+  (pp_end_only))
+
+==================
+before the header: a body starting with a comment, then a keyword, reads through
+==================
+
+{$IFDEF X}
+// the unit for X
+unit Foo;
+{$ENDIF}
+interface
+implementation
+end.
+
+---
+
+(root
+  (pp_open)
+  (comment)
+  (unit
+    (kUnit)
+    (moduleName
+      (identifier))
+    (pp_end_only)
+    (interface
+      (kInterface))
+    (implementation
+      (kImplementation))
+    (kEnd)
+    (kEndDot)))
+
+==================
+before the header: a body starting with a directive reads through
+==================
+
+{$IFDEF FPC}
+{$MODE DELPHI}
+{$ENDIF}
+unit Foo;
+interface
+implementation
+end.
+
+---
+
+(root
+  (pp_open)
+  (pp)
+  (pp_end_only)
+  (unit
+    (kUnit)
+    (moduleName
+      (identifier))
+    (interface
+      (kInterface))
+    (implementation
+      (kImplementation))
+    (kEnd)
+    (kEndDot)))

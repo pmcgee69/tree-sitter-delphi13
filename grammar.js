@@ -386,6 +386,12 @@ module.exports = grammar({
 		// by the scanner looking ahead for the closing `>`.
 		$.kLtTpl,
 		$._error_sentinel,
+		// A `{$IF*}...{$END*}` block at the very start of the file, before the
+		// module header, whose body is not Pascal: `{$IFDEF LINUX} This unit is
+		// only supported on Windows! {$ENDIF}`. Valid only there (see root), and
+		// shown as pp_block. The scanner refuses a body that starts with a
+		// keyword or a directive, which reads through as THEN-wins does.
+		$._pp_root_block,
 	],
 
 	word: $ => $.identifier,
@@ -512,6 +518,9 @@ module.exports = grammar({
 	rules: {
 		root:               $ => optional(choice(
 			seq(
+				// Before the header only directives and comments may stand; a
+				// conditional there whose body is not Pascal is skipped whole.
+				repeat(alias($._pp_root_block, $.pp_block)),
 				choice(
 					$.program,
 					$.library,

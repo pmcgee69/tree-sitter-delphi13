@@ -38,11 +38,11 @@ end.
 ---
 
 (root
-  (pp)
+  (pp_open)
   (unit
     (kUnit)
     (moduleName (identifier))
-    (pp)
+    (pp_end_only)
     (interface (kInterface))
     (implementation (kImplementation))
     (kEnd)
